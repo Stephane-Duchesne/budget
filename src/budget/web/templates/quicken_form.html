@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Reprendre l'historique Quicken</h1>
+<p class="sub">Une seule fois, à partir d'un export QIF complet. Comptes, catégories, transactions, ventilations et virements sont repris ; un aperçu s'affiche avant que rien ne soit enregistré.</p>
+{% if error %}<div class="alert bad">{{ error }}</div>{% endif %}
+<div class="card" style="margin-bottom:16px">
+  <b>Dans Quicken</b> : Fichier › Exporter › Fichier QIF. Choisissez « Tous les comptes », cochez Transactions, Liste des comptes et Liste des catégories, et une plage de dates qui couvre tout l'historique.
+</div>
+<form class="stack card" method="post" enctype="multipart/form-data">
+  <label>Fichier QIF exporté de Quicken <input type="file" name="file" required accept=".qif"></label>
+  <div><button class="btn">Voir l'aperçu</button></div>
+</form>
+{% endblock %}
