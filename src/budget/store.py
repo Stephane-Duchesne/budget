@@ -10,7 +10,7 @@ import sqlite3
 from decimal import Decimal
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_V1 = """
 CREATE TABLE accounts (
@@ -91,7 +91,13 @@ CREATE TABLE budgets (
 );
 """
 
-MIGRATIONS = {1: SCHEMA_V1}
+# v2 : valeur saisie à la main (placements) ; le solde = valeur + transactions postérieures.
+SCHEMA_V2 = """
+ALTER TABLE accounts ADD COLUMN value_cents INTEGER;
+ALTER TABLE accounts ADD COLUMN value_date TEXT;
+"""
+
+MIGRATIONS = {1: SCHEMA_V1, 2: SCHEMA_V2}
 
 
 def to_cents(amount: Decimal) -> int:
@@ -129,9 +135,22 @@ def create_account(db, name: str, kind: str = "imported", nature: str = "asset",
 
 def accounts_with_balance(db) -> list[sqlite3.Row]:
     return db.execute("""
-        SELECT a.*, a.opening_cents + COALESCE(SUM(t.amount_cents), 0) AS balance_cents,
+        SELECT a.*,
+               CASE WHEN a.value_date IS NOT NULL
+                    THEN a.value_cents + COALESCE(SUM(CASE WHEN t.date > a.value_date THEN t.amount_cents END), 0)
+                    ELSE a.opening_cents + COALESCE(SUM(t.amount_cents), 0) END AS balance_cents,
                COUNT(t.id) AS tx_count, MAX(t.date) AS last_date
         FROM accounts a LEFT JOIN transactions t ON t.account_id = a.id
         WHERE a.closed = 0
         GROUP BY a.id ORDER BY a.nature, a.name
     """).fetchall()
+
+
+def update_account(db, account_id: int, name: str, nature: str, currency: str,
+                   value: Decimal | None = None, value_date: str | None = None) -> None:
+    with db:
+        db.execute(
+            "UPDATE accounts SET name = ?, nature = ?, currency = ?, value_cents = ?, value_date = ? WHERE id = ?",
+            (name, nature, currency, None if value is None else to_cents(value),
+             value_date if value is not None else None, account_id),
+        )

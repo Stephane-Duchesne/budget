@@ -8,18 +8,18 @@
   <a class="btn ghost" href="/quicken">Reprendre l'historique Quicken</a>
 </div>
 {% if accounts %}
-<div class="card net"><span>Valeur nette</span><strong>{{ net|cents }}</strong></div>
+<div class="card net"><span>Valeur nette{% if foreign %} <small class="meta">(comptes en $ CA ; en plus : {% for c, v in foreign.items() %}{{ v|cents(c) }}{% if not loop.last %}, {% endif %}{% endfor %})</small>{% endif %}</span><strong>{{ net|cents }}</strong></div>
 <div class="grid">
   {% for a in accounts %}
-  <a class="card acct" href="/transactions?compte={{ a.id }}">
-    <div class="name">{{ a.name }}</div>
+  <div class="card acct">
+    <div class="name"><a href="/transactions?compte={{ a.id }}">{{ a.name }}</a> <a class="edit" href="/comptes/{{ a.id }}">Modifier</a></div>
     {% if a.nature == 'liability' %}
-      <div class="bal">{{ (-a.balance_cents)|cents }}</div><div class="meta">Solde dû</div>
+      <div class="bal">{{ (-a.balance_cents)|cents(a.currency) }}</div><div class="meta">Solde dû</div>
     {% else %}
-      <div class="bal">{{ a.balance_cents|cents }}</div><div class="meta">Solde</div>
+      <div class="bal">{{ a.balance_cents|cents(a.currency) }}</div><div class="meta">{% if a.value_date %}Valeur au {{ a.value_date }}{% else %}Solde{% endif %}</div>
     {% endif %}
     <div class="meta">{{ a.tx_count }} transactions{% if a.last_date %} · dernière le {{ a.last_date }}{% endif %}{% if a.kind == 'manual' %} · compte manuel{% endif %}</div>
-  </a>
+  </div>
   {% endfor %}
 </div>
 {% else %}

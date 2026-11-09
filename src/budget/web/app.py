@@ -26,10 +26,11 @@ def money(value, cents: bool = False) -> str:
 
 
 TEMPLATES.env.filters["money"] = money
-TEMPLATES.env.filters["cents"] = lambda v: money(v, cents=True)
+TEMPLATES.env.filters["cents"] = lambda v, cur="CAD": money(v, cents=True) + ("" if cur == "CAD" else f"\u00a0{cur[:2]}")
 
 NATURES = {"asset": "Actif", "liability": "Passif (carte de crédit, prêt)"}
 KINDS = {"imported": "Importé (relevés)", "manual": "Manuel (sans relevé)"}
+CURRENCIES = {"CAD": "Dollar canadien", "USD": "Dollar américain"}
 STATUS = {"new": "Nouvelle", "duplicate": "Déjà présente", "probable": "Doublon probable"}
 
 
@@ -63,13 +64,18 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     def dashboard(request: Request):
         accounts = store.accounts_with_balance(db)
-        assets = sum(a["balance_cents"] for a in accounts if a["nature"] == "asset")
-        liabilities = sum(a["balance_cents"] for a in accounts if a["nature"] == "liability")
+        assets = sum(a["balance_cents"] for a in accounts if a["nature"] == "asset" and a["currency"] == "CAD")
+        liabilities = sum(a["balance_cents"] for a in accounts if a["nature"] == "liability" and a["currency"] == "CAD")
+        foreign: dict[str, int] = {}
+        for a in accounts:
+            if a["currency"] != "CAD":
+                foreign[a["currency"]] = foreign.get(a["currency"], 0) + a["balance_cents"]
         imports = db.execute(
             "SELECT i.*, a.name AS account, COUNT(t.id) AS n FROM imports i JOIN accounts a ON a.id = i.account_id"
             " LEFT JOIN transactions t ON t.import_id = i.id GROUP BY i.id ORDER BY i.id DESC LIMIT 8"
         ).fetchall()
-        return page(request, "dashboard.html", accounts=accounts, net=assets + liabilities, imports=imports)
+        return page(request, "dashboard.html", accounts=accounts, net=assets + liabilities, foreign=foreign,
+                    imports=imports)
 
     @app.get("/comptes/nouveau", response_class=HTMLResponse)
     def new_account(request: Request):
@@ -88,6 +94,37 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         except Exception:
             return page(request, "account_form.html", natures=NATURES, kinds=KINDS, form=form,
                         error="Un compte porte déjà ce nom.")
+        return RedirectResponse("/", status_code=303)
+
+    @app.get("/comptes/{account_id}", response_class=HTMLResponse)
+    def edit_account(request: Request, account_id: int):
+        acct = next((a for a in store.accounts_with_balance(db) if a["id"] == account_id), None)
+        if acct is None:
+            return RedirectResponse("/", status_code=303)
+        return page(request, "account_edit.html", acct=acct, natures=NATURES, currencies=CURRENCIES, error=None)
+
+    @app.post("/comptes/{account_id}")
+    def save_account(request: Request, account_id: int, name: str = Form(...), nature: str = Form("asset"),
+                     currency: str = Form("CAD"), value: str = Form(""), value_date: str = Form("")):
+        acct = next((a for a in store.accounts_with_balance(db) if a["id"] == account_id), None)
+        if acct is None:
+            return RedirectResponse("/", status_code=303)
+        def fail(msg):
+            return page(request, "account_edit.html", acct=acct, natures=NATURES, currencies=CURRENCIES, error=msg)
+        if nature not in NATURES or currency not in CURRENCIES:
+            return fail("Valeur invalide.")
+        amount = None
+        if value.strip():
+            try:
+                amount = Decimal(value.replace(" ", "").replace("\u00a0", "").replace("$", "").replace(",", ".") )
+            except InvalidOperation:
+                return fail("Valeur invalide.")
+            if not value_date:
+                return fail("Indiquez la date de la valeur.")
+        try:
+            store.update_account(db, account_id, name.strip(), nature, currency, amount, value_date or None)
+        except Exception:
+            return fail("Un compte porte déjà ce nom.")
         return RedirectResponse("/", status_code=303)
 
     @app.get("/importer", response_class=HTMLResponse)

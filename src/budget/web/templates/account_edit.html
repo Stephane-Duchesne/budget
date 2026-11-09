@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Modifier « {{ acct.name }} »</h1>
+<p class="sub">Solde actuel : {{ (-acct.balance_cents if acct.nature == 'liability' else acct.balance_cents)|cents(acct.currency) }}{% if acct.nature == 'liability' %} dû{% endif %}.</p>
+{% if error %}<div class="alert bad">{{ error }}</div>{% endif %}
+<form class="stack card" method="post">
+  <label>Nom <input name="name" required value="{{ acct.name }}"></label>
+  <label>Nature <span>Une carte de crédit ou un prêt est un passif : son solde s'affiche comme montant dû.</span>
+    <select name="nature">{% for k, v in natures.items() %}<option value="{{ k }}" {{ 'selected' if acct.nature == k }}>{{ v }}</option>{% endfor %}</select></label>
+  <label>Devise <span>Les comptes hors $ CA sont affichés à part de la valeur nette.</span>
+    <select name="currency">{% for k, v in currencies.items() %}<option value="{{ k }}" {{ 'selected' if acct.currency == k }}>{{ v }}</option>{% endfor %}</select></label>
+  <label>Valeur à une date <span>Pour un placement : la valeur totale du compte à cette date. Les transactions postérieures s'y ajoutent. Laisser vide pour calculer le solde à partir des transactions.</span>
+    <input name="value" inputmode="decimal" value="{{ (acct.value_cents / 100) if acct.value_cents is not none else '' }}" placeholder="163669,00"></label>
+  <label>Date de la valeur <input type="date" name="value_date" value="{{ acct.value_date or '' }}"></label>
+  <div><button class="btn">Enregistrer</button> <a class="btn ghost" href="/">Annuler</a></div>
+</form>
+{% endblock %}

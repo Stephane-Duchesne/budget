@@ -50,3 +50,22 @@ def test_reprise_quicken(tmp_path):
     assert "Historique repris" in done.text and "1 virements liés" in done.text
     home = client.get("/").text
     assert "Chèques" in home and "REER" in home
+
+
+def test_modifier_compte_placement_et_carte(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.sqlite"))
+    client.post("/comptes/nouveau", data={"name": "ETrade", "kind": "manual", "nature": "asset",
+                                          "opening": "0", "opening_date": ""})
+    client.post("/comptes/nouveau", data={"name": "Infinite", "kind": "imported", "nature": "asset",
+                                          "opening": "-150", "opening_date": ""})
+    r = client.post("/comptes/1", data={"name": "ETrade", "nature": "asset", "currency": "USD",
+                                        "value": "121 056,00", "value_date": "2026-11-01"})
+    assert "121\u00a0056,00\u00a0$\u00a0US" in r.text and "Valeur au 2026-11-01" in r.text
+    r = client.post("/comptes/2", data={"name": "Infinite", "nature": "liability", "currency": "CAD",
+                                        "value": "", "value_date": ""})
+    assert "150,00\u00a0$</div><div class=\"meta\">Solde dû" in r.text
+    # Valeur nette en $ CA seulement : -150 ; le compte en $ US est affiché à part.
+    assert "<strong>-150,00\u00a0$</strong>" in r.text
+    r = client.post("/comptes/1", data={"name": "ETrade", "nature": "asset", "currency": "USD",
+                                        "value": "10", "value_date": ""})
+    assert "Indiquez la date" in r.text

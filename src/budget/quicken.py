@@ -142,7 +142,7 @@ def migrate(db, q: QifFile, file_name: str, file_sha256: str) -> Report:
             if s.investment:
                 report.warnings.append(
                     f"« {s.name} » est un compte de placement : seul son solde est repris"
-                    + ("." if s.balance else " (absent de l'export : à saisir).")
+                    + ("." if s.balance else " (absent de l'export : à saisir avec « Modifier » sur le tableau de bord).")
                 )
 
         by_account: dict[str, list[Transaction]] = defaultdict(list)
