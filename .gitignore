@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+# Real bank statements and Quicken exports: never committed
+tests/fixtures/private/
+*.sqlite
+*.db
