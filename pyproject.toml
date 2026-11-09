@@ -1,0 +1,22 @@
+[project]
+name = "budget"
+version = "0.1.0"
+description = "Gestion de budget personnelle, locale : import de relevés Desjardins (PDF, QIF, QFX), catégorisation et rapports."
+requires-python = ">=3.11"
+dependencies = [
+    "pdfplumber>=0.11,<0.12",
+    "ofxtools>=0.9.5,<0.10",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
