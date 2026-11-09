@@ -29,6 +29,7 @@ class QifAccount:
     name: str
     type: str = ""
     description: str = ""
+    balance: Decimal | None = None    # champ $ de la liste des comptes, quand Quicken l'exporte
 
 
 @dataclass
@@ -155,7 +156,13 @@ def read_text(text: str, date_order: str | None = None) -> QifFile:
             if "N" in fields:
                 current_account = fields["N"]
                 if not any(a.name == current_account for a in result.accounts):
-                    result.accounts.append(QifAccount(fields["N"], fields.get("T", ""), fields.get("D", "")))
+                    balance = None
+                    if fields.get("$"):
+                        try:
+                            balance = parse_amount(fields["$"])
+                        except ValueError:
+                            pass
+                    result.accounts.append(QifAccount(fields["N"], fields.get("T", ""), fields.get("D", ""), balance))
             continue
         if kind == "!type:cat":
             fields = {ln[0]: ln[1:].strip() for ln in rec}

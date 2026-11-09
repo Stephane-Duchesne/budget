@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import secrets
 import tempfile
@@ -10,7 +11,7 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from budget import importer, store
+from budget import importer, quicken, store
 from budget.models import ReadResult
 from budget.readers import qfx, qif, visa_desjardins_pdf
 
@@ -130,6 +131,47 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         importer.undo(db, import_id)
         return RedirectResponse("/", status_code=303)
 
+    pending_quicken: dict[str, tuple] = {}
+
+    @app.get("/quicken", response_class=HTMLResponse)
+    def quicken_form(request: Request):
+        return page(request, "quicken_form.html", error=None)
+
+    @app.post("/quicken", response_class=HTMLResponse)
+    async def quicken_preview(request: Request, file: UploadFile = File(...), date_order: str = Form("")):
+        data = await file.read()
+        try:
+            parsed = qif.read_text(qif.decode(data), date_order=date_order or None)
+        except Exception as exc:
+            return page(request, "quicken_form.html", error=f"Lecture impossible : {exc}")
+        if not parsed.transactions:
+            return page(request, "quicken_form.html", error="Aucune transaction trouvée : est-ce bien un export QIF de Quicken ?")
+        token = secrets.token_urlsafe(16)
+        pending_quicken[token] = (parsed, file.filename or "quicken.qif", hashlib.sha256(data).hexdigest(), data)
+        return page(request, "quicken_preview.html", q=parsed, token=token, summary=quicken.summarize(parsed),
+                    file_name=file.filename)
+
+    @app.post("/quicken/ordre", response_class=HTMLResponse)
+    def quicken_reorder(request: Request, token: str = Form(...), date_order: str = Form(...)):
+        item = pending_quicken.pop(token, None)
+        if item is None:
+            return RedirectResponse("/quicken", status_code=303)
+        _, name, digest, data = item
+        parsed = qif.read_text(qif.decode(data), date_order=date_order)
+        token = secrets.token_urlsafe(16)
+        pending_quicken[token] = (parsed, name, digest, data)
+        return page(request, "quicken_preview.html", q=parsed, token=token, summary=quicken.summarize(parsed),
+                    file_name=name)
+
+    @app.post("/quicken/confirmer", response_class=HTMLResponse)
+    def quicken_commit(request: Request, token: str = Form(...)):
+        item = pending_quicken.pop(token, None)
+        if item is None:
+            return RedirectResponse("/quicken", status_code=303)
+        parsed, name, digest, _ = item
+        report = quicken.migrate(db, parsed, name, digest)
+        return page(request, "quicken_report.html", report=report, summary=quicken.summarize(parsed))
+
     @app.get("/transactions", response_class=HTMLResponse)
     def transactions(request: Request, compte: int | None = None, q: str = "", import_id: int | None = None):
         where, args = [], []
@@ -139,7 +181,13 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
             where.append("t.import_id = ?"); args.append(import_id)
         if q:
             where.append("(t.payee LIKE ? OR t.memo LIKE ?)"); args += [f"%{q}%", f"%{q}%"]
-        sql = ("SELECT t.*, a.name AS account FROM transactions t JOIN accounts a ON a.id = t.account_id"
+        sql = ("SELECT t.*, a.name AS account,"
+               " (SELECT COUNT(*) FROM splits s WHERE s.transaction_id = t.id) AS n_splits,"
+               " (SELECT COALESCE(p.name || ' : ', '') || c.name FROM splits s JOIN categories c ON c.id = s.category_id"
+               "  LEFT JOIN categories p ON p.id = c.parent_id WHERE s.transaction_id = t.id LIMIT 1) AS category,"
+               " (SELECT a2.name FROM transactions o JOIN accounts a2 ON a2.id = o.account_id"
+               "  WHERE o.id = t.transfer_id) AS transfer_with"
+               " FROM transactions t JOIN accounts a ON a.id = t.account_id"
                + (" WHERE " + " AND ".join(where) if where else "")
                + " ORDER BY t.date DESC, t.id DESC LIMIT 500")
         rows = db.execute(sql, args).fetchall()

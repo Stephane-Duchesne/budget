@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Aperçu de la reprise</h1>
+<p class="sub">{{ file_name }} · {{ q.transactions|length }} transactions · {{ q.categories|length }} catégories</p>
+
+<form class="card" method="post" action="/quicken/ordre" style="margin-bottom:12px">
+  <input type="hidden" name="token" value="{{ token }}">
+  {% set ex = q.transactions[0] %}
+  <b>Format des dates</b> :
+  {% if q.date_order_certain %}détecté automatiquement ({{ 'mois/jour/année' if q.date_order == 'MDY' else 'jour/mois/année' if q.date_order == 'DMY' else 'année-mois-jour' }}).
+  {% else %}<span style="color:var(--warn)">impossible à déterminer avec certitude.</span>{% endif %}
+  Exemple : « {{ ex.raw.split(' | ')[0][1:] }} » est lu comme le <b>{{ ex.date }}</b>.
+  <select name="date_order" onchange="this.form.submit()">
+    <option value="MDY" {{ 'selected' if q.date_order == 'MDY' }}>mois/jour/année</option>
+    <option value="DMY" {{ 'selected' if q.date_order == 'DMY' }}>jour/mois/année</option>
+  </select>
+</form>
+
+{% for w in q.warnings %}<div class="alert">{{ w }}</div>{% endfor %}
+
+<div class="table-wrap"><table>
+  <tr><th>Compte</th><th class="hide-sm">Type Quicken</th><th class="num">Transactions</th><th class="hide-sm">Période</th><th class="num">Solde calculé</th></tr>
+  {% for s in summary %}
+  <tr>
+    <td>{{ s.name }}{% if s.investment %} <span class="tag probable">placement : solde seulement</span>{% endif %}</td>
+    <td class="hide-sm">{{ s.type }}</td>
+    <td class="num">{{ s.transactions }}</td>
+    <td class="hide-sm">{% if s.first %}{{ s.first }} → {{ s.last }}{% endif %}</td>
+    <td class="num">{{ s.balance|money }}</td>
+  </tr>
+  {% endfor %}
+</table></div>
+<p class="meta">Comparez chaque solde calculé avec celui affiché dans Quicken. S'ils concordent, l'historique est complet.</p>
+
+<form method="post" action="/quicken/confirmer" class="actions">
+  <input type="hidden" name="token" value="{{ token }}">
+  <button class="btn">Reprendre l'historique</button>
+  <a class="btn ghost" href="/quicken">Annuler</a>
+</form>
+{% endblock %}

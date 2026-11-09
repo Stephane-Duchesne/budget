@@ -18,7 +18,10 @@
     <td>{{ t.date }}</td>
     <td>{{ t.payee }}<div class="memo">{{ t.memo }}</div></td>
     <td class="hide-sm">{{ t.account }}</td>
-    <td><span class="tag">À catégoriser</span></td>
+    <td>{% if t.transfer_with %}<span class="tag">Virement : {{ t.transfer_with }}</span>
+      {% elif t.n_splits > 1 %}<span class="tag">Ventilée ({{ t.n_splits }})</span>
+      {% elif t.category %}{{ t.category }}
+      {% else %}<span class="tag probable">À catégoriser</span>{% endif %}</td>
     <td class="num {{ 'pos' if t.amount_cents > 0 else 'neg' }}">{{ t.amount_cents|cents }}</td>
   </tr>
   {% endfor %}

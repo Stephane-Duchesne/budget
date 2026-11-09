@@ -33,3 +33,20 @@ def test_fichier_illisible(tmp_path):
 
 def test_format_monetaire():
     assert money("-1234.5") == "-1 234,50 $"
+
+
+def test_reprise_quicken(tmp_path):
+    from test_quicken import EXPORT
+
+    client = TestClient(create_app(tmp_path / "test.sqlite"))
+    data = EXPORT.encode("cp1252")
+    preview = client.post("/quicken", files={"file": ("quicken.qif", data)})
+    assert "Aperçu de la reprise" in preview.text and "2 838,00 $" in preview.text
+    token = preview.text.split('name="token" value="')[1].split('"')[0]
+    # Changer l'ordre des dates renvoie un nouvel aperçu
+    preview = client.post("/quicken/ordre", data={"token": token, "date_order": "MDY"})
+    token = preview.text.split('name="token" value="')[1].split('"')[0]
+    done = client.post("/quicken/confirmer", data={"token": token})
+    assert "Historique repris" in done.text and "1 virements liés" in done.text
+    home = client.get("/").text
+    assert "Chèques" in home and "REER" in home
