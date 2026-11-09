@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Historique repris</h1>
-<p class="sub">{{ report.accounts_created|length }} comptes créés · {{ report.categories_created }} catégories · {{ report.transfers_linked }} virements liés</p>
+<p class="sub">{{ report.accounts_created|length }} comptes créés · {{ report.categories_created }} catégories · {{ report.transfers_linked }} virements liés · {{ report.rules_created }} règles tirées des bénéficiaires mémorisés · {{ report.proposed }} catégories proposées</p>
 {% for w in report.warnings %}<div class="alert">{{ w }}</div>{% endfor %}
 {% if report.transfers_unmatched %}<div class="alert">{{ report.transfers_unmatched }} virements n'ont pas trouvé leur contrepartie (compte absent de l'export ?).</div>{% endif %}
 <div class="table-wrap"><table>

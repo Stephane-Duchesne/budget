@@ -45,6 +45,12 @@ h2 { font-size: 16px; margin: 32px 0 12px; }
 .btn { display: inline-block; border: 0; border-radius: 8px; padding: 9px 14px; font: inherit; font-weight: 600;
   background: var(--accent); color: var(--accent-ink); text-decoration: none; cursor: pointer; }
 .btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+a.plain { color: inherit; text-decoration: none; }
+a.plain:hover { text-decoration: underline; }
+.check { display: flex; gap: 8px; align-items: center; font-weight: 400; }
+label.check { display: flex; gap: 10px; align-items: flex-start; font-weight: 400; }
+.check input { width: auto; padding: 0; margin: 3px 0 0; flex: none; }
+td.date { white-space: nowrap; }
 .btn.small { padding: 4px 10px; font-size: 13px; font-weight: 500; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 20px; }
 table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
@@ -82,6 +88,7 @@ input, select { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1p
     <a href="/" class="{{ 'on' if request.url.path == '/' }}">Tableau de bord</a>
     <a href="/transactions" class="{{ 'on' if request.url.path.startswith('/transactions') }}">Transactions</a>
     <a href="/importer" class="{{ 'on' if request.url.path.startswith('/importer') }}">Importer</a>
+    <a href="/regles" class="{{ 'on' if request.url.path.startswith('/regles') }}">Règles</a>
   </nav>
 </div></header>
 <main>{% block content %}{% endblock %}</main>

@@ -76,3 +76,39 @@ def test_carte_en_surplus(tmp_path):
     client.post("/comptes/nouveau", data={"name": "Infinite", "kind": "imported", "nature": "liability",
                                           "opening": "2791,97", "opening_date": ""})
     assert "2\u00a0791,97\u00a0$</div><div class=\"meta\">Solde créditeur (surplus)" in client.get("/").text
+
+
+def test_categoriser_depuis_l_ecran(tmp_path):
+    from budget import categorize
+    client = TestClient(create_app(tmp_path / "t.sqlite"))
+    client.post("/comptes/nouveau", data={"name": "Visa", "kind": "imported", "nature": "liability",
+                                          "opening": "0", "opening_date": ""})
+    qif_text = ("!Type:CCard\nD01/05/2026\nT-97.14\nPIGA EXTRA #8021\n^\n"
+                "D01/19/2026\nT-55.00\nPIGA EXTRA #8021\n^\n").encode()
+    pv = client.post("/importer", data={"account_id": "1"}, files={"file": ("v.qif", qif_text)})
+    token = pv.text.split('name="token" value="')[1].split('"')[0]
+    client.post("/importer/confirmer", data={"token": token})
+    assert "2 à vérifier" in client.get("/transactions").text
+
+    edit = client.get("/transactions/1")
+    assert "Créer les catégories de départ" in edit.text
+    client.post("/categories/depart", data={"back": "/transactions/1"})
+    edit = client.get("/transactions/1")
+    assert "Toujours classer « IGA EXTRA »" in edit.text and "autre transaction à vérifier" in edit.text
+    import re
+    epic = re.search(r'value="(\d+)"\s*>Alimentation : Épicerie<', edit.text).group(1)
+    r = client.post("/transactions/1", data={"category_id": epic, "remember": "1", "similar": "1",
+                                             "back": "/transactions"})
+    assert "Alimentation : Épicerie" in r.text and "à vérifier" not in r.text
+    rules = client.get("/regles").text
+    assert "IGA EXTRA" in rules and "Règle" in rules
+
+    # Un nouvel achat chez le même marchand est proposé par la règle, puis confirmé en un clic.
+    pv = client.post("/importer", data={"account_id": "1"},
+                     files={"file": ("w.qif", b"!Type:CCard\nD02/02/2026\nT-12.00\nPIGA EXTRA #8021\n^\n")})
+    token = pv.text.split('name="token" value="')[1].split('"')[0]
+    client.post("/importer/confirmer", data={"token": token})
+    page = client.get("/transactions?statut=a_verifier").text
+    assert "Confirmer la proposition affichée" in page
+    client.post("/transactions/confirmer", data={"ids": "3", "back": "/transactions"})
+    assert "à vérifier" not in client.get("/transactions").text

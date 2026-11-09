@@ -80,7 +80,7 @@ def test_export_quicken_complet():
         ("Alimentation:Épicerie", Decimal("-100.00"), "Épicerie"),
         ("Maison", Decimal("-50.00"), ""),
     ]
-    assert any("Memorized" in w for w in r.warnings)
+    assert [m.payee for m in r.memorized] == ["IGA"] and not any("Memorized" in w for w in r.warnings)
 
 
 def test_ordre_des_dates():

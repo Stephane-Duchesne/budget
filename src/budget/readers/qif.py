@@ -40,10 +40,20 @@ class QifCategory:
 
 
 @dataclass
+class QifMemorized:
+    """Bénéficiaire mémorisé de Quicken : un bénéficiaire et la catégorie qu'il reçoit."""
+    payee: str
+    category: str | None = None
+    amount: Decimal | None = None
+    split: bool = False
+
+
+@dataclass
 class QifFile(ReadResult):
     """Résultat de lecture enrichi des listes d'un export Quicken complet."""
     accounts: list[QifAccount] = field(default_factory=list)
     categories: list[QifCategory] = field(default_factory=list)
+    memorized: list[QifMemorized] = field(default_factory=list)
     date_order: str = "MDY"
     date_order_certain: bool = True
 
@@ -164,6 +174,18 @@ def read_text(text: str, date_order: str | None = None) -> QifFile:
                         except ValueError:
                             pass
                     result.accounts.append(QifAccount(fields["N"], fields.get("T", ""), fields.get("D", ""), balance))
+            continue
+        if kind == "!type:memorized":
+            fields = {}
+            for ln in rec:
+                fields.setdefault(ln[0], ln[1:].strip())
+            if fields.get("P"):
+                amount = None
+                try:
+                    amount = parse_amount(fields["T"]) if fields.get("T") else None
+                except ValueError:
+                    pass
+                result.memorized.append(QifMemorized(fields["P"], fields.get("L") or None, amount, "S" in fields))
             continue
         if kind == "!type:cat":
             fields = {ln[0]: ln[1:].strip() for ln in rec}

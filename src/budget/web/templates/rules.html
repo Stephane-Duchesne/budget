@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Règles de catégorisation</h1>
+<p class="sub">Appliquées dans l'ordre : vos règles d'abord, puis les bénéficiaires mémorisés de Quicken. Une règle se crée en corrigeant la catégorie d'une transaction.</p>
+{% if rules %}
+<div class="table-wrap"><table>
+  <tr><th>Marchand</th><th>Catégorie</th><th class="hide-sm">Origine</th><th></th></tr>
+  {% for r in rules %}
+  <tr><td>{{ r.merchant }}</td><td>{{ r.category }}</td><td class="hide-sm"><span class="tag">{{ r.source }}</span></td>
+    <td><form method="post" action="/regles/{{ r.id }}/supprimer" onsubmit="return confirm('Supprimer cette règle ?')"><button class="btn ghost small">Supprimer</button></form></td></tr>
+  {% endfor %}
+</table></div>
+{% else %}
+<div class="card empty">Aucune règle pour l'instant. Corrigez la catégorie d'une transaction pour en créer une, ou reprenez l'historique Quicken pour importer vos bénéficiaires mémorisés.</div>
+{% endif %}
+{% endblock %}

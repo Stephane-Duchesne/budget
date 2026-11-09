@@ -1,27 +1,46 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Transactions</h1>
-<p class="sub">{{ rows|length }} transactions affichées · total {{ total|cents }}</p>
+<p class="sub">{{ rows|length }} transactions affichées · total {{ total|cents }}{% if to_review %} · <a href="/transactions?statut=a_verifier">{{ to_review }} à vérifier</a>{% endif %}</p>
 <form class="search" method="get">
   <select name="compte" onchange="this.form.submit()">
     <option value="">Tous les comptes</option>
     {% for a in accounts %}<option value="{{ a.id }}" {{ 'selected' if compte == a.id }}>{{ a.name }}</option>{% endfor %}
   </select>
+  <select name="statut" onchange="this.form.submit()">
+    <option value="">Toutes</option>
+    <option value="a_verifier" {{ 'selected' if statut == 'a_verifier' }}>À vérifier</option>
+  </select>
   <input name="q" value="{{ q }}" placeholder="Rechercher un bénéficiaire">
   <button class="btn ghost">Filtrer</button>
 </form>
+{% set proposed = rows|selectattr('status', 'equalto', 'proposed')|list %}
+<div class="actions">
+  {% if proposed %}
+  <form method="post" action="/transactions/confirmer">
+    {% for t in proposed %}<input type="hidden" name="ids" value="{{ t.id }}">{% endfor %}
+    <input type="hidden" name="back" value="{{ back }}">
+    <button class="btn">Confirmer {{ "la proposition affichée" if proposed|length == 1 else "les " ~ proposed|length ~ " propositions affichées" }}</button>
+  </form>
+  {% endif %}
+  {% if to_review %}
+  <form method="post" action="/categoriser"><input type="hidden" name="back" value="{{ back }}">
+    <button class="btn ghost">Relancer la catégorisation</button></form>
+  {% endif %}
+</div>
 {% if rows %}
 <div class="table-wrap"><table>
   <tr><th>Date</th><th>Bénéficiaire</th><th class="hide-sm">Compte</th><th>Catégorie</th><th class="num">Montant</th></tr>
   {% for t in rows %}
   <tr>
-    <td>{{ t.date }}</td>
-    <td>{{ t.payee }}<div class="memo">{{ t.memo }}</div></td>
+    <td class="date">{{ t.date }}</td>
+    <td><a class="plain" href="/transactions/{{ t.id }}?back={{ back|urlencode }}">{{ t.payee }}</a><div class="memo">{{ t.memo }}</div></td>
     <td class="hide-sm">{{ t.account }}</td>
     <td>{% if t.transfer_with %}<span class="tag">Virement : {{ t.transfer_with }}</span>
       {% elif t.n_splits > 1 %}<span class="tag">Ventilée ({{ t.n_splits }})</span>
-      {% elif t.category %}{{ t.category }}
-      {% else %}<span class="tag probable">À catégoriser</span>{% endif %}</td>
+      {% elif t.category %}<a class="plain" href="/transactions/{{ t.id }}?back={{ back|urlencode }}">{{ t.category }}</a>
+        {% if t.status == 'proposed' %}<span class="tag probable" title="Proposée, à confirmer">{{ sources.get(t.category_source, 'Proposée') }}</span>{% endif %}
+      {% else %}<a href="/transactions/{{ t.id }}?back={{ back|urlencode }}"><span class="tag probable">À catégoriser</span></a>{% endif %}</td>
     <td class="num {{ 'pos' if t.amount_cents > 0 else 'neg' }}">{{ t.amount_cents|cents }}</td>
   </tr>
   {% endfor %}

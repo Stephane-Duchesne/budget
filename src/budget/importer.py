@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 
+from budget import categorize
 from budget.models import ReadResult, Transaction
 from budget.store import to_cents
 from budget.text import clean_label, similarity
@@ -104,6 +105,7 @@ def commit(db, pv: Preview, keep_probable: set[int] | None = None) -> int:
     """Enregistre l'import. `keep_probable` : index des doublons probables à importer quand même."""
     keep_probable = keep_probable or set()
     r = pv.result
+    new_ids: list[int] = []
     with db:
         import_id = db.execute(
             "INSERT INTO imports (account_id, file_name, file_sha256, format, statement_date,"
@@ -119,13 +121,14 @@ def commit(db, pv: Preview, keep_probable: set[int] | None = None) -> int:
             if c.status == "duplicate" or (c.status == "probable" and i not in keep_probable):
                 continue
             t = c.tx
-            db.execute(
+            new_ids.append(db.execute(
                 "INSERT INTO transactions (account_id, date, posted_date, amount_cents, payee, memo,"
                 " label_clean, fitid, import_id, raw) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (pv.account_id, t.date.isoformat(), t.posted_date and t.posted_date.isoformat(),
                  to_cents(t.amount), t.payee, t.memo, clean_label(t.payee or t.memo),
                  t.fitid, import_id, t.raw),
-            )
+            ).lastrowid)
+    categorize.apply(db, new_ids)
     return import_id
 
 

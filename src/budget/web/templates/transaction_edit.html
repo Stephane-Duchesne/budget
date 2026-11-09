@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ t.payee or t.memo }}</h1>
+<p class="sub">{{ t.date }} · {{ t.account }} · <strong>{{ t.amount_cents|cents }}</strong>
+  {% if t.status == 'proposed' %} · proposée par : {{ sources.get(t.category_source, '?') }}{% endif %}</p>
+{% if t.transfer_id %}<div class="alert">Cette transaction est un virement entre deux de vos comptes : elle n'a pas de catégorie.</div>
+{% elif splits|length > 1 %}<div class="alert">Transaction ventilée en {{ splits|length }} catégories : choisir une catégorie remplace la ventilation.</div>{% endif %}
+{% if not categories %}
+<div class="card">Aucune catégorie pour l'instant.
+  <form method="post" action="/categories/depart" style="margin-top:8px"><input type="hidden" name="back" value="/transactions/{{ t.id }}">
+  <button class="btn">Créer les catégories de départ</button></form></div>
+{% else %}
+<form class="stack card" method="post">
+  <input type="hidden" name="back" value="{{ back }}">
+  <label>Catégorie
+    <select name="category_id" required>
+      <option value="">Choisir…</option>
+      {% for id, path in categories %}<option value="{{ id }}" {{ 'selected' if current == id }}>{{ path }}</option>{% endfor %}
+    </select></label>
+  {% if key %}
+  <label class="check"><input type="checkbox" name="remember" value="1" checked> Toujours classer « {{ key }} » dans cette catégorie (crée une règle)</label>
+  {% if similar %}<label class="check"><input type="checkbox" name="similar" value="1" checked> Appliquer aussi {{ "à l'autre transaction" if similar == 1 else "aux " ~ similar ~ " autres transactions" }} à vérifier de ce marchand</label>{% endif %}
+  {% endif %}
+  <div><button class="btn">{{ 'Confirmer' if t.status == 'proposed' else 'Enregistrer' }}</button> <a class="btn ghost" href="{{ back }}">Retour</a></div>
+</form>
+{% endif %}
+{% endblock %}

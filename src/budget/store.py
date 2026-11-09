@@ -10,7 +10,7 @@ import sqlite3
 from decimal import Decimal
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA_V1 = """
 CREATE TABLE accounts (
@@ -97,7 +97,13 @@ ALTER TABLE accounts ADD COLUMN value_cents INTEGER;
 ALTER TABLE accounts ADD COLUMN value_date TEXT;
 """
 
-MIGRATIONS = {1: SCHEMA_V1, 2: SCHEMA_V2}
+# v3 : catégorisation (origine d'une catégorie proposée, origine d'une règle).
+SCHEMA_V3 = """
+ALTER TABLE transactions ADD COLUMN category_source TEXT;
+ALTER TABLE rules ADD COLUMN source TEXT NOT NULL DEFAULT 'rule';
+"""
+
+MIGRATIONS = {1: SCHEMA_V1, 2: SCHEMA_V2, 3: SCHEMA_V3}
 
 
 def to_cents(amount: Decimal) -> int:

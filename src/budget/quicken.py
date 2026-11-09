@@ -12,7 +12,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from budget import importer
+from budget import categorize, importer
 from budget.models import ReadResult, Transaction
 from budget.readers.qif import QifFile, transfer_account
 from budget.store import to_cents
@@ -46,6 +46,8 @@ class Report:
     duplicates: dict[str, int] = field(default_factory=dict)
     transfers_linked: int = 0
     transfers_unmatched: int = 0
+    rules_created: int = 0
+    proposed: int = 0
     warnings: list[str] = field(default_factory=list)
 
 
@@ -208,5 +210,16 @@ def migrate(db, q: QifFile, file_name: str, file_sha256: str) -> Report:
             db.execute("UPDATE transactions SET transfer_id = ? WHERE id = ?", (other, tx_id))
             db.execute("UPDATE transactions SET transfer_id = ? WHERE id = ?", (tx_id, other))
             report.transfers_linked += 1
+        # Bénéficiaires mémorisés -> règles (après les tiennes, qui ont priorité).
+        before = db.execute("SELECT COUNT(*) FROM rules").fetchone()[0]
+        for m in q.memorized:
+            name = _category_name(m.category)
+            key = categorize.merchant_key(m.payee)
+            if m.split or not name or transfer_account(m.category) or not key:
+                continue
+            categorize.add_rule(db, {"merchant": key}, cats.get(name, bool(m.amount and m.amount > 0)),
+                                source="quicken", priority=200)
+        report.rules_created = db.execute("SELECT COUNT(*) FROM rules").fetchone()[0] - before
+    report.proposed = categorize.apply(db)
     report.warnings += q.warnings
     return report

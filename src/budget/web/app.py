@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import secrets
 import tempfile
@@ -11,7 +12,7 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from budget import importer, quicken, store
+from budget import categorize, importer, quicken, store
 from budget.models import ReadResult
 from budget.readers import qfx, qif, visa_desjardins_pdf
 
@@ -210,8 +211,11 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         return page(request, "quicken_report.html", report=report, summary=quicken.summarize(parsed))
 
     @app.get("/transactions", response_class=HTMLResponse)
-    def transactions(request: Request, compte: int | None = None, q: str = "", import_id: int | None = None):
+    def transactions(request: Request, compte: int | None = None, q: str = "", import_id: int | None = None,
+                     statut: str = ""):
         where, args = [], []
+        if statut == "a_verifier":
+            where.append("t.status != 'confirmed' AND t.transfer_id IS NULL")
         if compte:
             where.append("t.account_id = ?"); args.append(compte)
         if import_id:
@@ -229,7 +233,84 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                + " ORDER BY t.date DESC, t.id DESC LIMIT 500")
         rows = db.execute(sql, args).fetchall()
         total = sum(r["amount_cents"] for r in rows)
-        return page(request, "transactions.html", rows=rows, total=total, compte=compte, q=q, import_id=import_id)
+        to_review = db.execute("SELECT COUNT(*) FROM transactions WHERE status != 'confirmed'"
+                               " AND transfer_id IS NULL").fetchone()[0]
+        return page(request, "transactions.html", rows=rows, total=total, compte=compte, q=q, import_id=import_id,
+                    statut=statut, to_review=to_review, sources=categorize.SOURCES,
+                    back=str(request.url.path) + ("?" + request.url.query if request.url.query else ""))
+
+    def _safe_back(back: str) -> str:
+        return back if back.startswith("/transactions") else "/transactions"
+
+    @app.post("/transactions/confirmer")
+    async def confirm_shown(request: Request):
+        form = await request.form()
+        ids = [int(i) for i in form.getlist("ids") if str(i).isdigit()]
+        categorize.confirm(db, ids)
+        return RedirectResponse(_safe_back(str(form.get("back", ""))), status_code=303)
+
+    @app.post("/categoriser")
+    def run_categorizer(back: str = Form("/transactions")):
+        categorize.apply(db)
+        return RedirectResponse(_safe_back(back), status_code=303)
+
+    @app.get("/transactions/{tx_id}", response_class=HTMLResponse)
+    def edit_transaction(request: Request, tx_id: int, back: str = "/transactions"):
+        t = db.execute("SELECT t.*, a.name AS account FROM transactions t JOIN accounts a ON a.id = t.account_id"
+                       " WHERE t.id = ?", (tx_id,)).fetchone()
+        if t is None:
+            return RedirectResponse("/transactions", status_code=303)
+        splits = db.execute("SELECT * FROM splits WHERE transaction_id = ?", (tx_id,)).fetchall()
+        key = categorize.merchant_key(t["payee"], t["memo"])
+        similar = [r["id"] for r in db.execute(
+            "SELECT id, payee, memo FROM transactions WHERE status != 'confirmed' AND transfer_id IS NULL AND id != ?",
+            (tx_id,)) if categorize.same_merchant(key, categorize.merchant_key(r["payee"], r["memo"]))]
+        paths = categorize.category_paths(db)
+        return page(request, "transaction_edit.html", t=t, splits=splits, key=key, similar=len(similar),
+                    categories=sorted(paths.items(), key=lambda kv: kv[1].lower()),
+                    current=splits[0]["category_id"] if len(splits) == 1 else None,
+                    sources=categorize.SOURCES, back=_safe_back(back))
+
+    @app.post("/transactions/{tx_id}")
+    def save_transaction(tx_id: int, category_id: str = Form(""), remember: str = Form(""),
+                         similar: str = Form(""), back: str = Form("/transactions")):
+        t = db.execute("SELECT * FROM transactions WHERE id = ?", (tx_id,)).fetchone()
+        if t is None or not category_id.isdigit():
+            return RedirectResponse(_safe_back(back), status_code=303)
+        cat = int(category_id)
+        categorize.set_category(db, tx_id, cat)
+        key = categorize.merchant_key(t["payee"], t["memo"])
+        if remember and key:
+            with db:
+                categorize.add_rule(db, {"merchant": key}, cat)
+        if similar and key:
+            for r in db.execute("SELECT id, payee, memo FROM transactions WHERE status != 'confirmed'"
+                                " AND transfer_id IS NULL").fetchall():
+                if categorize.same_merchant(key, categorize.merchant_key(r["payee"], r["memo"])):
+                    categorize.set_category(db, r["id"], cat)
+        return RedirectResponse(_safe_back(back), status_code=303)
+
+    @app.post("/categories/depart")
+    def starter_categories(back: str = Form("/transactions")):
+        categorize.create_starter_categories(db)
+        return RedirectResponse(back if back.startswith("/") else "/", status_code=303)
+
+    @app.get("/regles", response_class=HTMLResponse)
+    def rules(request: Request):
+        paths = categorize.category_paths(db)
+        rows = []
+        for r in db.execute("SELECT * FROM rules ORDER BY priority, id"):
+            cond, action = json.loads(r["conditions"]), json.loads(r["action"])
+            rows.append(dict(id=r["id"], merchant=cond.get("merchant") or cond.get("contains", ""),
+                             category=paths.get(action.get("category_id"), "?"),
+                             source=categorize.SOURCES.get(r["source"], r["source"])))
+        return page(request, "rules.html", rules=rows)
+
+    @app.post("/regles/{rule_id}/supprimer")
+    def delete_rule(rule_id: int):
+        with db:
+            db.execute("DELETE FROM rules WHERE id = ?", (rule_id,))
+        return RedirectResponse("/regles", status_code=303)
 
     return app
 
