@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Tableau de bord</h1>
+<p class="sub">Vos comptes et leurs soldes, calculés à partir des transactions importées.</p>
+<div class="actions">
+  <a class="btn" href="/importer">Importer un relevé</a>
+  <a class="btn ghost" href="/comptes/nouveau">Ajouter un compte</a>
+</div>
+{% if accounts %}
+<div class="card net"><span>Valeur nette</span><strong>{{ net|cents }}</strong></div>
+<div class="grid">
+  {% for a in accounts %}
+  <a class="card acct" href="/transactions?compte={{ a.id }}">
+    <div class="name">{{ a.name }}</div>
+    {% if a.nature == 'liability' %}
+      <div class="bal">{{ (-a.balance_cents)|cents }}</div><div class="meta">Solde dû</div>
+    {% else %}
+      <div class="bal">{{ a.balance_cents|cents }}</div><div class="meta">Solde</div>
+    {% endif %}
+    <div class="meta">{{ a.tx_count }} transactions{% if a.last_date %} · dernière le {{ a.last_date }}{% endif %}{% if a.kind == 'manual' %} · compte manuel{% endif %}</div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card empty">Aucun compte pour l'instant. Commencez par <a href="/comptes/nouveau">ajouter un compte</a>, par exemple « Visa Desjardins ».</div>
+{% endif %}
+{% if imports %}
+<h2>Derniers imports</h2>
+<div class="table-wrap"><table>
+  <tr><th>Fichier</th><th>Compte</th><th class="hide-sm">Importé le</th><th class="num">Transactions</th><th>Contrôle</th><th></th></tr>
+  {% for i in imports %}
+  <tr>
+    <td><a href="/transactions?import_id={{ i.id }}">{{ i.file_name }}</a></td>
+    <td>{{ i.account }}</td>
+    <td class="hide-sm">{{ i.imported_at[:16] }}</td>
+    <td class="num">{{ i.n }}</td>
+    <td>{% if i.reconciled is none %}<span class="tag">—</span>{% elif i.reconciled %}<span class="tag new">Totaux OK</span>{% else %}<span class="tag probable">Écart</span>{% endif %}</td>
+    <td><form method="post" action="/imports/{{ i.id }}/annuler" onsubmit="return confirm('Annuler cet import et retirer ses transactions ?')"><button class="btn ghost small">Annuler</button></form></td>
+  </tr>
+  {% endfor %}
+</table></div>
+{% endif %}
+{% endblock %}

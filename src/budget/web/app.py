@@ -1,0 +1,167 @@
+from __future__ import annotations
+
+import os
+import secrets
+import tempfile
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+
+from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+
+from budget import importer, store
+from budget.models import ReadResult
+from budget.readers import qfx, qif, visa_desjardins_pdf
+
+TEMPLATES = Jinja2Templates(directory=Path(__file__).parent / "templates")
+
+
+def money(value, cents: bool = False) -> str:
+    """Montant au format canadien français : « -1 234,56 $ »."""
+    v = store.from_cents(value) if cents else Decimal(value)
+    s = f"{abs(v):,.2f}".replace(",", " ").replace(".", ",")
+    return f"{'-' if v < 0 else ''}{s} $"
+
+
+TEMPLATES.env.filters["money"] = money
+TEMPLATES.env.filters["cents"] = lambda v: money(v, cents=True)
+
+NATURES = {"asset": "Actif", "liability": "Passif (carte de crédit, prêt)"}
+KINDS = {"imported": "Importé (relevés)", "manual": "Manuel (sans relevé)"}
+STATUS = {"new": "Nouvelle", "duplicate": "Déjà présente", "probable": "Doublon probable"}
+
+
+def default_db_path() -> Path:
+    if os.environ.get("BUDGET_DB"):
+        return Path(os.environ["BUDGET_DB"])
+    folder = Path.home() / "Budget"
+    folder.mkdir(exist_ok=True)
+    return folder / "budget.sqlite"
+
+
+def read_file(path: Path) -> list[ReadResult]:
+    if visa_desjardins_pdf.sniff(path):
+        return [visa_desjardins_pdf.read(path)]
+    if qfx.sniff(path):
+        return qfx.read(path)
+    if qif.sniff(path):
+        return [qif.read(path)]
+    raise ValueError("Format non reconnu : PDF Visa Desjardins, QIF ou QFX attendus.")
+
+
+def create_app(db_path: str | Path | None = None) -> FastAPI:
+    app = FastAPI(title="Budget", docs_url=None, redoc_url=None)
+    db = store.connect(db_path or default_db_path())
+    pending: dict[str, importer.Preview] = {}
+
+    def page(request: Request, name: str, **ctx) -> HTMLResponse:
+        ctx.setdefault("accounts", store.accounts_with_balance(db))
+        return TEMPLATES.TemplateResponse(request, name, ctx)
+
+    @app.get("/", response_class=HTMLResponse)
+    def dashboard(request: Request):
+        accounts = store.accounts_with_balance(db)
+        assets = sum(a["balance_cents"] for a in accounts if a["nature"] == "asset")
+        liabilities = sum(a["balance_cents"] for a in accounts if a["nature"] == "liability")
+        imports = db.execute(
+            "SELECT i.*, a.name AS account, COUNT(t.id) AS n FROM imports i JOIN accounts a ON a.id = i.account_id"
+            " LEFT JOIN transactions t ON t.import_id = i.id GROUP BY i.id ORDER BY i.id DESC LIMIT 8"
+        ).fetchall()
+        return page(request, "dashboard.html", accounts=accounts, net=assets + liabilities, imports=imports)
+
+    @app.get("/comptes/nouveau", response_class=HTMLResponse)
+    def new_account(request: Request):
+        return page(request, "account_form.html", natures=NATURES, kinds=KINDS, error=None, form={})
+
+    @app.post("/comptes/nouveau")
+    def create_account(request: Request, name: str = Form(...), kind: str = Form("imported"),
+                       nature: str = Form("asset"), opening: str = Form("0"), opening_date: str = Form("")):
+        form = dict(name=name, kind=kind, nature=nature, opening=opening, opening_date=opening_date)
+        try:
+            amount = Decimal(opening.replace(" ", "").replace(" ", "").replace(",", ".") or "0")
+            store.create_account(db, name.strip(), kind, nature, amount, opening_date or None)
+        except (InvalidOperation, ValueError):
+            return page(request, "account_form.html", natures=NATURES, kinds=KINDS, form=form,
+                        error="Solde d'ouverture invalide.")
+        except Exception:
+            return page(request, "account_form.html", natures=NATURES, kinds=KINDS, form=form,
+                        error="Un compte porte déjà ce nom.")
+        return RedirectResponse("/", status_code=303)
+
+    @app.get("/importer", response_class=HTMLResponse)
+    def import_form(request: Request, compte: int | None = None):
+        return page(request, "import_form.html", selected=compte, error=None)
+
+    @app.post("/importer", response_class=HTMLResponse)
+    async def import_preview(request: Request, account_id: int = Form(...), file: UploadFile = File(...)):
+        suffix = Path(file.filename or "releve").suffix
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(await file.read())
+            path = Path(tmp.name)
+        try:
+            results = read_file(path)
+            digest = importer.sha256(path)
+        except Exception as exc:  # fichier illisible : on l'explique au lieu d'échouer
+            return page(request, "import_form.html", selected=account_id, error=f"Lecture impossible : {exc}")
+        finally:
+            path.unlink(missing_ok=True)
+        if len(results) != 1:
+            return page(request, "import_form.html", selected=account_id,
+                        error=f"Ce fichier contient {len(results)} comptes ; l'import multi-comptes arrive bientôt.")
+        pv = importer.preview(db, account_id, results[0], file.filename or "relevé", digest)
+        token = secrets.token_urlsafe(16)
+        pending[token] = pv
+        account = db.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()
+        return page(request, "import_preview.html", pv=pv, token=token, account=account, status=STATUS)
+
+    @app.post("/importer/confirmer")
+    async def import_commit(request: Request):
+        form = await request.form()
+        pv = pending.pop(str(form.get("token")), None)
+        if pv is None:
+            return RedirectResponse("/importer", status_code=303)
+        keep = {int(k.split("_", 1)[1]) for k in form.keys() if k.startswith("keep_")}
+        import_id = importer.commit(db, pv, keep)
+        return RedirectResponse(f"/transactions?import_id={import_id}", status_code=303)
+
+    @app.post("/imports/{import_id}/annuler")
+    def import_undo(import_id: int):
+        importer.undo(db, import_id)
+        return RedirectResponse("/", status_code=303)
+
+    @app.get("/transactions", response_class=HTMLResponse)
+    def transactions(request: Request, compte: int | None = None, q: str = "", import_id: int | None = None):
+        where, args = [], []
+        if compte:
+            where.append("t.account_id = ?"); args.append(compte)
+        if import_id:
+            where.append("t.import_id = ?"); args.append(import_id)
+        if q:
+            where.append("(t.payee LIKE ? OR t.memo LIKE ?)"); args += [f"%{q}%", f"%{q}%"]
+        sql = ("SELECT t.*, a.name AS account FROM transactions t JOIN accounts a ON a.id = t.account_id"
+               + (" WHERE " + " AND ".join(where) if where else "")
+               + " ORDER BY t.date DESC, t.id DESC LIMIT 500")
+        rows = db.execute(sql, args).fetchall()
+        total = sum(r["amount_cents"] for r in rows)
+        return page(request, "transactions.html", rows=rows, total=total, compte=compte, q=q, import_id=import_id)
+
+    return app
+
+
+def main() -> None:  # pragma: no cover - lancement manuel
+    import threading
+    import webbrowser
+
+    import uvicorn
+
+    port = int(os.environ.get("BUDGET_PORT", "8765"))
+    url = f"http://127.0.0.1:{port}"
+    print(f"Budget : {url}  (données : {default_db_path()})")
+    threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+    # 127.0.0.1 : l'application n'est accessible que depuis cet ordinateur.
+    uvicorn.run(create_app(), host="127.0.0.1", port=port, log_level="warning")
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()
