@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Transactions</h1>
+<p class="sub">{{ rows|length }} transactions affichées · total {{ total|cents }}</p>
+<form class="search" method="get">
+  <select name="compte" onchange="this.form.submit()">
+    <option value="">Tous les comptes</option>
+    {% for a in accounts %}<option value="{{ a.id }}" {{ 'selected' if compte == a.id }}>{{ a.name }}</option>{% endfor %}
+  </select>
+  <input name="q" value="{{ q }}" placeholder="Rechercher un bénéficiaire">
+  <button class="btn ghost">Filtrer</button>
+</form>
+{% if rows %}
+<div class="table-wrap"><table>
+  <tr><th>Date</th><th>Bénéficiaire</th><th class="hide-sm">Compte</th><th>Catégorie</th><th class="num">Montant</th></tr>
+  {% for t in rows %}
+  <tr>
+    <td>{{ t.date }}</td>
+    <td>{{ t.payee }}<div class="memo">{{ t.memo }}</div></td>
+    <td class="hide-sm">{{ t.account }}</td>
+    <td><span class="tag">À catégoriser</span></td>
+    <td class="num {{ 'pos' if t.amount_cents > 0 else 'neg' }}">{{ t.amount_cents|cents }}</td>
+  </tr>
+  {% endfor %}
+</table></div>
+{% else %}
+<div class="card empty">Aucune transaction. <a href="/importer">Importer un relevé</a></div>
+{% endif %}
+{% endblock %}

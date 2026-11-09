@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Aperçu de l'import</h1>
+<p class="sub">{{ pv.file_name }} → {{ account.name }}{% if pv.result.statement_date %} · relevé du {{ pv.result.statement_date }}{% endif %}</p>
+
+{% if pv.already_imported %}<div class="alert">Ce fichier a déjà été importé dans ce compte. Les transactions déjà présentes seront ignorées.</div>{% endif %}
+{% for c in pv.result.checks %}
+  {% if c.ok %}
+  <div class="check ok"><span>{{ c.label }} : {{ c.computed|money }}</span><span>Concorde avec le relevé</span></div>
+  {% elif c.expected is none %}
+  <div class="check ko"><span>{{ c.label }} : {{ c.computed|money }}</span><span>Total du relevé introuvable</span></div>
+  {% else %}
+  <div class="check ko"><span>{{ c.label }} : {{ c.computed|money }}</span><span>Le relevé indique {{ c.expected|money }}</span></div>
+  {% endif %}
+{% endfor %}
+{% if pv.result.closing_balance is not none %}<div class="check ok"><span>Solde du relevé</span><span>{{ pv.result.closing_balance|money }}</span></div>{% endif %}
+{% for w in pv.result.warnings %}<div class="alert">{{ w }}</div>{% endfor %}
+
+<div class="stats">
+  <div class="card stat"><b>{{ pv.count('new') }}</b>nouvelles</div>
+  <div class="card stat"><b>{{ pv.count('duplicate') }}</b>déjà présentes</div>
+  <div class="card stat"><b>{{ pv.count('probable') }}</b>doublons probables</div>
+</div>
+
+<form method="post" action="/importer/confirmer"
+  {% if pv.result.checks and not pv.result.reconciled %}onsubmit="return confirm('Les totaux ne concordent pas avec le relevé. Importer quand même ?')"{% endif %}>
+  <input type="hidden" name="token" value="{{ token }}">
+  <div class="actions">
+    <button class="btn">Importer {{ pv.count('new') }} transactions</button>
+    <a class="btn ghost" href="/importer">Annuler</a>
+  </div>
+  <div class="table-wrap"><table>
+    <tr><th>Date</th><th>Bénéficiaire</th><th class="num">Montant</th><th>Statut</th></tr>
+    {% for c in pv.candidates %}
+    <tr>
+      <td>{{ c.tx.date }}</td>
+      <td>{{ c.tx.payee }}<div class="memo">{{ c.tx.memo }}</div></td>
+      <td class="num {{ 'pos' if c.tx.amount > 0 else 'neg' }}">{{ c.tx.amount|money }}</td>
+      <td><span class="tag {{ c.status }}">{{ status[c.status] }}</span>
+        {% if c.status == 'probable' %}<div class="memo">ressemble à : {{ c.match_label }}</div>
+        <label class="memo"><span><input type="checkbox" name="keep_{{ loop.index0 }}"> importer quand même</span></label>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table></div>
+</form>
+{% endblock %}

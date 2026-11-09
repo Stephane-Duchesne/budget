@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Ajouter un compte</h1>
+<p class="sub">Un compte importé reçoit des relevés ; un compte manuel (retraite, par exemple) est alimenté à la main et par virements.</p>
+{% if error %}<div class="alert bad">{{ error }}</div>{% endif %}
+<form class="stack card" method="post">
+  <label>Nom <input name="name" required value="{{ form.name or '' }}" placeholder="Visa Desjardins"></label>
+  <label>Type <select name="kind">{% for k, v in kinds.items() %}<option value="{{ k }}" {{ 'selected' if form.kind == k }}>{{ v }}</option>{% endfor %}</select></label>
+  <label>Nature <select name="nature">{% for k, v in natures.items() %}<option value="{{ k }}" {{ 'selected' if form.nature == k }}>{{ v }}</option>{% endfor %}</select></label>
+  <label>Solde d'ouverture <span>Pour une carte de crédit, un montant dû s'écrit en négatif.</span>
+    <input name="opening" inputmode="decimal" value="{{ form.opening or '0' }}"></label>
+  <label>Date du solde d'ouverture <input type="date" name="opening_date" value="{{ form.opening_date or '' }}"></label>
+  <div><button class="btn">Créer le compte</button> <a class="btn ghost" href="/">Annuler</a></div>
+</form>
+{% endblock %}
