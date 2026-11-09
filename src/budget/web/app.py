@@ -9,7 +9,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from budget import categorize, importer, quicken, store
@@ -237,6 +237,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
                                " AND transfer_id IS NULL").fetchone()[0]
         return page(request, "transactions.html", rows=rows, total=total, compte=compte, q=q, import_id=import_id,
                     statut=statut, to_review=to_review, sources=categorize.SOURCES,
+                    category_list=sorted(categorize.category_paths(db).values(), key=str.lower),
                     back=str(request.url.path) + ("?" + request.url.query if request.url.query else ""))
 
     def _safe_back(back: str) -> str:
@@ -248,6 +249,26 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
         ids = [int(i) for i in form.getlist("ids") if str(i).isdigit()]
         categorize.confirm(db, ids)
         return RedirectResponse(_safe_back(str(form.get("back", ""))), status_code=303)
+
+    @app.post("/api/transactions/{tx_id}/categorie")
+    async def api_set_category(tx_id: int, request: Request):
+        body = await request.json()
+        t = db.execute("SELECT id, transfer_id FROM transactions WHERE id = ?", (tx_id,)).fetchone()
+        if t is None or t["transfer_id"]:
+            return JSONResponse({"error": "Transaction introuvable ou virement."}, status_code=400)
+        typed = str(body.get("category", "")).strip()
+        if not typed:
+            categorize.set_category(db, tx_id, None)
+            return {"ok": True, "category": "", "updated": []}
+        cid = categorize.find_or_create_category(db, typed, create=bool(body.get("create")))
+        if cid is None:
+            return JSONResponse({"unknown": True}, status_code=404)
+        others = categorize.recategorize(db, tx_id, cid)
+        return {"ok": True, "category": categorize.category_paths(db)[cid], "updated": others}
+
+    @app.post("/api/transactions/{tx_id}/confirmer")
+    def api_confirm(tx_id: int):
+        return {"ok": categorize.confirm(db, [tx_id]) == 1}
 
     @app.post("/categoriser")
     def run_categorizer(back: str = Form("/transactions")):

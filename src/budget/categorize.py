@@ -233,3 +233,45 @@ def create_starter_categories(db) -> int:
                     db.execute("INSERT INTO categories (name, parent_id, kind) VALUES (?,?,?)", (c, pid, kind))
                     n += 1
     return n
+
+
+def find_or_create_category(db, typed: str, create: bool = False) -> int | None:
+    """Catégorie à partir du texte tapé (« Santé : Pharmacie » ou « Santé:Pharmacie »)."""
+    parts = [p.strip() for p in typed.split(":") if p.strip()]
+    if not parts:
+        return None
+    wanted = " : ".join(parts).casefold()
+    for cid, path in category_paths(db).items():
+        if path.casefold() == wanted:
+            return cid
+    if not create:
+        return None
+    parent = None
+    with db:
+        for part in parts:
+            row = db.execute("SELECT id FROM categories WHERE name = ? AND parent_id IS ?", (part, parent)).fetchone()
+            parent = row["id"] if row else db.execute(
+                "INSERT INTO categories (name, parent_id) VALUES (?, ?)", (part, parent)).lastrowid
+    return parent
+
+
+def recategorize(db, transaction_id: int, category_id: int) -> list[int]:
+    """Choix de l'utilisateur, à la Quicken : confirme, mémorise le marchand (règle) et
+    applique aux autres transactions non confirmées du même marchand. Renvoie leurs id."""
+    t = db.execute("SELECT payee, memo FROM transactions WHERE id = ?", (transaction_id,)).fetchone()
+    set_category(db, transaction_id, category_id)
+    key = merchant_key(t["payee"], t["memo"])
+    if not key:
+        return []
+    with db:
+        add_rule(db, {"merchant": key}, category_id)
+    others = [r["id"] for r in db.execute(
+        "SELECT id, payee, memo FROM transactions WHERE status != 'confirmed' AND transfer_id IS NULL AND id != ?",
+        (transaction_id,)) if same_merchant(key, merchant_key(r["payee"], r["memo"]))]
+    with db:
+        for i in others:
+            db.execute("DELETE FROM splits WHERE transaction_id = ?", (i,))
+            db.execute("INSERT INTO splits (transaction_id, category_id, amount_cents)"
+                       " SELECT id, ?, amount_cents FROM transactions WHERE id = ?", (category_id, i))
+            db.execute("UPDATE transactions SET status = 'proposed', category_source = 'rule' WHERE id = ?", (i,))
+    return others

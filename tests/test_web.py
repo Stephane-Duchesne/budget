@@ -112,3 +112,25 @@ def test_categoriser_depuis_l_ecran(tmp_path):
     assert "Confirmer la proposition affichée" in page
     client.post("/transactions/confirmer", data={"ids": "3", "back": "/transactions"})
     assert "à vérifier" not in client.get("/transactions").text
+
+
+def test_categorie_en_ligne(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.sqlite"))
+    client.post("/comptes/nouveau", data={"name": "Visa", "kind": "imported", "nature": "liability",
+                                          "opening": "0", "opening_date": ""})
+    client.post("/categories/depart", data={"back": "/"})
+    qif_text = ("!Type:CCard\nD01/05/2026\nT-29.39\nPJEAN COUTU 0321          CHAMBLY      QC\n^\n"
+                "D01/19/2026\nT-12.00\nPJEAN COUTU 0321\n^\nD01/20/2026\nT-5.00\nPAUTRE\n^\n").encode()
+    pv = client.post("/importer", data={"account_id": "1"}, files={"file": ("v.qif", qif_text)})
+    token = pv.text.split('name="token" value="')[1].split('"')[0]
+    client.post("/importer/confirmer", data={"token": token})
+    page = client.get("/transactions").text
+    assert 'list="cats"' in page and '<option value="Santé : Pharmacie">' in page
+
+    r = client.post("/api/transactions/1/categorie", json={"category": "santé:pharmacie"})
+    assert r.json() == {"ok": True, "category": "Santé : Pharmacie", "updated": [2]}
+    assert client.post("/api/transactions/3/categorie", json={"category": "Animaux"}).status_code == 404
+    r = client.post("/api/transactions/3/categorie", json={"category": "Animaux : Vétérinaire", "create": True})
+    assert r.json()["category"] == "Animaux : Vétérinaire"
+    assert client.post("/api/transactions/2/confirmer").json() == {"ok": True}
+    assert "à vérifier" not in client.get("/transactions").text

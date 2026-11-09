@@ -36,11 +36,13 @@
     <td class="date">{{ t.date }}</td>
     <td><a class="plain" href="/transactions/{{ t.id }}?back={{ back|urlencode }}">{{ t.payee }}</a><div class="memo">{{ t.memo }}</div></td>
     <td class="hide-sm">{{ t.account }}</td>
-    <td>{% if t.transfer_with %}<span class="tag">Virement : {{ t.transfer_with }}</span>
-      {% elif t.n_splits > 1 %}<span class="tag">Ventilée ({{ t.n_splits }})</span>
-      {% elif t.category %}<a class="plain" href="/transactions/{{ t.id }}?back={{ back|urlencode }}">{{ t.category }}</a>
-        {% if t.status == 'proposed' %}<span class="tag probable" title="Proposée, à confirmer">{{ sources.get(t.category_source, 'Proposée') }}</span>{% endif %}
-      {% else %}<a href="/transactions/{{ t.id }}?back={{ back|urlencode }}"><span class="tag probable">À catégoriser</span></a>{% endif %}</td>
+    <td class="catcell">{% if t.transfer_with %}<span class="tag">Virement : {{ t.transfer_with }}</span>
+      {% elif t.n_splits > 1 %}<a href="/transactions/{{ t.id }}?back={{ back|urlencode }}"><span class="tag">Ventilée ({{ t.n_splits }})</span></a>
+      {% else %}<div class="catedit {{ t.status }}">
+        <input class="cat" list="cats" data-id="{{ t.id }}" value="{{ t.category or '' }}" data-orig="{{ t.category or '' }}"
+               placeholder="À catégoriser" autocomplete="off" aria-label="Catégorie">
+        {% if t.status == 'proposed' %}<button type="button" class="ok" data-id="{{ t.id }}" title="Confirmer « {{ sources.get(t.category_source, 'Proposée') }} »">✓</button>{% endif %}
+      </div>{% endif %}</td>
     <td class="num {{ 'pos' if t.amount_cents > 0 else 'neg' }}">{{ t.amount_cents|cents }}</td>
   </tr>
   {% endfor %}
@@ -48,4 +50,58 @@
 {% else %}
 <div class="card empty">Aucune transaction. <a href="/importer">Importer un relevé</a></div>
 {% endif %}
+<datalist id="cats">{% for c in category_list %}<option value="{{ c }}">{% endfor %}</datalist>
+<p class="meta hint">Tapez quelques lettres d'une catégorie (ex. « pharm ») puis Entrée : la catégorie est confirmée, mémorisée pour ce marchand et proposée pour ses autres transactions. ✓ confirme une proposition. Échap annule.</p>
+<script>
+(function () {
+  const known = new Set([...document.querySelectorAll('#cats option')].map(o => o.value.toLowerCase()));
+  const inputs = () => [...document.querySelectorAll('input.cat')];
+  function markConfirmed(input, value) {
+    const box = input.closest('.catedit');
+    box.className = 'catedit ' + (value ? 'confirmed' : 'to_categorize');
+    const ok = box.querySelector('.ok'); if (ok) ok.remove();
+    input.value = value; input.dataset.orig = value;
+  }
+  async function save(input) {
+    if (input.dataset.busy) return input.dataset.busy;
+    const value = input.value.trim();
+    if (value === input.dataset.orig && !input.closest('.proposed')) return true;
+    let create = false;
+    if (value && !known.has(value.toLowerCase().replace(/\s*:\s*/g, ' : '))) {
+      if (!confirm('Créer la catégorie « ' + value + ' » ?')) { input.value = input.dataset.orig; return false; }
+      create = true;
+    }
+    input.dataset.busy = '1';
+    try {
+      const r = await fetch('/api/transactions/' + input.dataset.id + '/categorie', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({category: value, create})});
+      const data = await r.json();
+      if (!r.ok) { alert(data.error || 'Catégorie inconnue'); input.value = input.dataset.orig; return false; }
+      if (create) { known.add(data.category.toLowerCase()); const o = document.createElement('option'); o.value = data.category; document.getElementById('cats').append(o); }
+      markConfirmed(input, data.category);
+      for (const id of data.updated) {
+        const other = document.querySelector('input.cat[data-id="' + id + '"]');
+        if (other) { other.value = data.category; other.dataset.orig = data.category;
+          const box = other.closest('.catedit'); box.className = 'catedit proposed';
+          if (!box.querySelector('.ok')) { const b = document.createElement('button'); b.type = 'button'; b.className = 'ok'; b.dataset.id = id; b.textContent = '✓'; box.append(b); } }
+      }
+      return true;
+    } finally { delete input.dataset.busy; }
+  }
+  document.addEventListener('keydown', async e => {
+    const input = e.target.closest && e.target.closest('input.cat'); if (!input) return;
+    if (e.key === 'Escape') { input.value = input.dataset.orig; input.blur(); }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (await save(input)) { const all = inputs(); const next = all[all.indexOf(input) + 1]; if (next) { next.focus(); next.select(); } }
+    }
+  });
+  document.addEventListener('change', e => { if (e.target.matches('input.cat')) save(e.target); });
+  document.addEventListener('click', async e => {
+    const b = e.target.closest('button.ok'); if (!b) return;
+    const r = await fetch('/api/transactions/' + b.dataset.id + '/confirmer', {method: 'POST'});
+    if (r.ok) { const input = b.closest('.catedit').querySelector('input.cat'); markConfirmed(input, input.value); }
+  });
+})();
+</script>
 {% endblock %}

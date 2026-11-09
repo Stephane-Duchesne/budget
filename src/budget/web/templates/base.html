@@ -51,6 +51,13 @@ a.plain:hover { text-decoration: underline; }
 label.check { display: flex; gap: 10px; align-items: flex-start; font-weight: 400; }
 .check input { width: auto; padding: 0; margin: 3px 0 0; flex: none; }
 td.date { white-space: nowrap; }
+.catedit { display: flex; gap: 4px; align-items: center; min-width: 200px; }
+.catedit input.cat { flex: 1; padding: 5px 8px; border-color: transparent; background: transparent; }
+.catedit input.cat:hover, .catedit input.cat:focus { border-color: var(--line); background: var(--surface); }
+.catedit.proposed input.cat { background: var(--warn-bg); color: var(--warn); }
+.catedit.to_categorize input.cat { border-color: var(--warn-bg); }
+.catedit .ok { border: 1px solid var(--line); background: var(--surface); color: var(--good); border-radius: 6px; padding: 3px 8px; cursor: pointer; font: inherit; }
+.hint { margin-top: 10px; }
 .btn.small { padding: 4px 10px; font-size: 13px; font-weight: 500; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 20px; }
 table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
