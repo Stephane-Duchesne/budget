@@ -148,7 +148,7 @@ def read_text(text: str, date_order: str | None = None) -> QifFile:
         )
 
     current_account: str | None = None
-    skipped: set[str] = set()
+    skipped: dict[str, dict] = {}
     for header, rec in _records(lines):
         kind = header.lower()
         if kind == "!account":
@@ -170,7 +170,13 @@ def read_text(text: str, date_order: str | None = None) -> QifFile:
                 result.categories.append(QifCategory(fields["N"], fields.get("D", ""), "I" in fields))
             continue
         if not kind.startswith("!type:") or kind[6:] not in TRANSACTION_TYPES:
-            skipped.add(header or "(sans en-tête)")
+            info = skipped.setdefault(header or "(sans en-tête)", {"n": 0, "accounts": set(), "tx": 0})
+            info["n"] += 1
+            if current_account:
+                info["accounts"].add(current_account)
+            codes = {ln[:1] for ln in rec}
+            if "D" in codes and ("T" in codes or "U" in codes):
+                info["tx"] += 1
             continue
 
         values: dict[str, str] = {}
@@ -204,7 +210,13 @@ def read_text(text: str, date_order: str | None = None) -> QifFile:
             raw=" | ".join(rec),
         ))
     for h in sorted(skipped):
-        result.warnings.append(f"Section non prise en charge, ignorée : {h}")
+        info = skipped[h]
+        detail = f"{info['n']} enregistrement(s)"
+        if info["tx"]:
+            detail += f", dont {info['tx']} avec date et montant"
+        if info["accounts"] and info["tx"]:
+            detail += ", compte(s) : " + ", ".join(sorted(info["accounts"]))
+        result.warnings.append(f"Section non prise en charge, ignorée : {h} ({detail})")
     return result
 
 

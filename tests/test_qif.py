@@ -102,3 +102,11 @@ def test_montants():
     assert qif.parse_amount("1,234.56") == Decimal("1234.56")
     assert qif.parse_amount("1 234,56") == Decimal("1234.56")
     assert qif.parse_amount("-7000.00") == Decimal("-7000.00")
+
+
+def test_section_ignoree_nomme_le_compte():
+    from budget.readers.qif import read_text
+    r = read_text("!Account\nNREER\nTInvst\n^\n!Type:\nD01/15/2025\nT100.00\n^\n"
+                  "!Type:Prices\n\"XYZ\",1.0,\"1/1/25\"\n^\n")
+    assert "Section non prise en charge, ignorée : !Type: (1 enregistrement(s), dont 1 avec date et montant, compte(s) : REER)" in r.warnings
+    assert "Section non prise en charge, ignorée : !Type:Prices (1 enregistrement(s))" in r.warnings
