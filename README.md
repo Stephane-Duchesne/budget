@@ -30,11 +30,10 @@ import, liste des transactions avec recherche.
 | QIF | relevés Desjardins, sorties de StatementToQif.ps1, export complet de Quicken | testé sur des exemples |
 | QFX / OFX | compte chèques Desjardins, export Quicken | testé sur un exemple synthétique |
 
-## Essayer
+## Ligne de commande et tests
 
 ```
-python -m venv .venv
-.venv/bin/pip install -e ".[dev]"          # Windows : .venv\Scripts\pip ...
+.venv/bin/pip install -e ".[dev]"
 .venv/bin/python -m budget.cli lire releve.pdf
 .venv/bin/python -m budget.cli qif releve.pdf   # remplace StatementToQif.ps1
 .venv/bin/python -m pytest
