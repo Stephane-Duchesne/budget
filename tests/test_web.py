@@ -69,3 +69,10 @@ def test_modifier_compte_placement_et_carte(tmp_path):
     r = client.post("/comptes/1", data={"name": "ETrade", "nature": "asset", "currency": "USD",
                                         "value": "10", "value_date": ""})
     assert "Indiquez la date" in r.text
+
+
+def test_carte_en_surplus(tmp_path):
+    client = TestClient(create_app(tmp_path / "t.sqlite"))
+    client.post("/comptes/nouveau", data={"name": "Infinite", "kind": "imported", "nature": "liability",
+                                          "opening": "2791,97", "opening_date": ""})
+    assert "2\u00a0791,97\u00a0$</div><div class=\"meta\">Solde créditeur (surplus)" in client.get("/").text

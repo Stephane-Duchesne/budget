@@ -13,7 +13,9 @@
   {% for a in accounts %}
   <div class="card acct">
     <div class="name"><a href="/transactions?compte={{ a.id }}">{{ a.name }}</a> <a class="edit" href="/comptes/{{ a.id }}">Modifier</a></div>
-    {% if a.nature == 'liability' %}
+    {% if a.nature == 'liability' and a.balance_cents > 0 %}
+      <div class="bal">{{ a.balance_cents|cents(a.currency) }}</div><div class="meta">Solde créditeur (surplus)</div>
+    {% elif a.nature == 'liability' %}
       <div class="bal">{{ (-a.balance_cents)|cents(a.currency) }}</div><div class="meta">Solde dû</div>
     {% else %}
       <div class="bal">{{ a.balance_cents|cents(a.currency) }}</div><div class="meta">{% if a.value_date %}Valeur au {{ a.value_date }}{% else %}Solde{% endif %}</div>
