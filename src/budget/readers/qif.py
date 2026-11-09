@@ -149,6 +149,7 @@ def read_text(text: str, date_order: str | None = None) -> QifFile:
 
     current_account: str | None = None
     skipped: dict[str, dict] = {}
+    untyped: set[str] = set()
     for header, rec in _records(lines):
         kind = header.lower()
         if kind == "!account":
@@ -169,7 +170,12 @@ def read_text(text: str, date_order: str | None = None) -> QifFile:
             if "N" in fields:
                 result.categories.append(QifCategory(fields["N"], fields.get("D", ""), "I" in fields))
             continue
-        if not kind.startswith("!type:") or kind[6:] not in TRANSACTION_TYPES:
+        if kind == "!type:" and current_account and {ln[:1] for ln in rec} >= {"D"} and (
+            any(ln[:1] in "TU" for ln in rec)
+        ):
+            # Quicken exporte certains comptes (ex. prêts) avec un en-tête « !Type: » vide.
+            untyped.add(current_account)
+        elif not kind.startswith("!type:") or kind[6:] not in TRANSACTION_TYPES:
             info = skipped.setdefault(header or "(sans en-tête)", {"n": 0, "accounts": set(), "tx": 0})
             info["n"] += 1
             if current_account:
@@ -209,6 +215,10 @@ def read_text(text: str, date_order: str | None = None) -> QifFile:
             account=current_account,
             raw=" | ".join(rec),
         ))
+    for name in sorted(untyped):
+        result.warnings.append(
+            f"Compte « {name} » exporté sans type (!Type: vide) : transactions lues quand même, vérifier le solde."
+        )
     for h in sorted(skipped):
         info = skipped[h]
         detail = f"{info['n']} enregistrement(s)"

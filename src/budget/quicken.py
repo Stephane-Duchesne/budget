@@ -19,7 +19,8 @@ from budget.store import to_cents
 from budget.text import clean_label
 
 FORMAT = "quicken-qif"
-LIABILITY_TYPES = {"ccard", "oth l"}
+LIABILITY_TYPES = {"ccard", "oth l", "loan"}
+KNOWN_TYPES = {"bank", "cash", "ccard", "oth a", "oth l", "loan"}
 IMPORTED_TYPES = {"bank", "ccard"}
 INVESTMENT_TYPES = {"invst", "port", "401(k)/403(b)", "mutual"}
 OPENING_PAYEES = {"opening balance", "solde d'ouverture", "solde initial", "solde d’ouverture"}
@@ -133,7 +134,8 @@ def migrate(db, q: QifFile, file_name: str, file_sha256: str) -> Report:
             account_ids[s.name] = db.execute(
                 "INSERT INTO accounts (name, kind, nature, opening_cents, opening_date) VALUES (?,?,?,?,?)",
                 (s.name, "imported" if t in IMPORTED_TYPES else "manual",
-                 "liability" if t in LIABILITY_TYPES else "asset",
+                 "liability" if t in LIABILITY_TYPES or (t not in KNOWN_TYPES and not s.investment and s.balance < 0)
+                 else "asset",
                  to_cents(s.opening), s.first),
             ).lastrowid
             report.accounts_created.append(s.name)

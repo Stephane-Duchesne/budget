@@ -125,3 +125,58 @@ def test_reprise_deux_fois_sans_doublon():
     report = quicken.migrate(db, qif.read_text(EXPORT), "quicken.qif", "h")
     assert report.accounts_created == [] and sum(report.inserted.values()) == 0
     assert report.duplicates == {"Chèques": 4, "Visa": 2}
+
+
+PRET = """!Option:AutoSwitch
+!Account
+NChèques
+TBank
+^
+NPrêt fenêtres
+T
+^
+!Clear:AutoSwitch
+!Account
+NChèques
+TBank
+^
+!Type:Bank
+D01/01/2025
+T1000.00
+POpening Balance
+L[Chèques]
+^
+D02/01/2025
+T-250.00
+PRemboursement
+L[Prêt fenêtres]
+^
+!Account
+NPrêt fenêtres
+T
+^
+!Type:
+D01/01/2025
+T-5000.00
+POpening Balance
+L[Prêt fenêtres]
+^
+D02/01/2025
+T250.00
+PRemboursement
+L[Chèques]
+^
+"""
+
+
+def test_pret_exporte_sans_type():
+    q = qif.read_text(PRET)
+    assert any("Prêt fenêtres" in w and "sans type" in w for w in q.warnings)
+    assert not any("non prise en charge" in w for w in q.warnings)
+    db = store.connect(":memory:")
+    quicken.migrate(db, q, "quicken.qif", "h")
+    bal = {r["name"]: (r["nature"], r["balance_cents"]) for r in store.accounts_with_balance(db)}
+    assert bal["Prêt fenêtres"] == ("liability", -475000)
+    assert bal["Chèques"] == ("asset", 75000)
+    linked = db.execute("SELECT COUNT(*) FROM transactions WHERE transfer_id IS NOT NULL").fetchone()[0]
+    assert linked == 2
